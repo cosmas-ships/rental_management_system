@@ -1,0 +1,10 @@
+# Ignore all .env files in any folder
+**/.env
+**/.env.*
+
+# Ignore build or dependency folders
+backend/target/
+frontend/node_modules/
+
+# Ignore logs
+**/*.log
