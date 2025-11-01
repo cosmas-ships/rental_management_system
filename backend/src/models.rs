@@ -1,3 +1,5 @@
+// src/models.rs
+
 use chrono::{DateTime, Utc};
 use ipnetwork::IpNetwork;
 use serde::{Deserialize, Serialize};

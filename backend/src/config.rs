@@ -1,3 +1,5 @@
+// src/config.rs
+
 use serde::Deserialize;
 use std::env;
 
@@ -53,6 +55,37 @@ impl Config {
     pub fn is_production(&self) -> bool {
         self.environment == Environment::Production
     }
+
+    pub fn is_development(&self) -> bool {
+        self.environment == Environment::Development
+    }
+
+    /// Get the server address as a string
+    pub fn server_address(&self) -> String {
+        format!("{}:{}", self.host, self.port)
+    }
+
+    /// Get log level based on environment
+    pub fn log_level(&self) -> &str {
+        match self.environment {
+            Environment::Development => "debug",
+            Environment::Production => "info",
+        }
+    }
+
+    /// Check if debug mode should be enabled
+    pub fn debug_enabled(&self) -> bool {
+        self.is_development()
+    }
+}
+
+impl Environment {
+    pub fn as_str(&self) -> &str {
+        match self {
+            Environment::Development => "development",
+            Environment::Production => "production",
+        }
+    }
 }
 
 impl std::str::FromStr for Environment {
@@ -64,5 +97,11 @@ impl std::str::FromStr for Environment {
             "production" => Ok(Environment::Production),
             _ => Err(anyhow::anyhow!("Invalid environment: {}", s)),
         }
+    }
+}
+
+impl std::fmt::Display for Environment {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
     }
 }

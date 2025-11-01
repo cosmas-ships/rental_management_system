@@ -1,13 +1,14 @@
+//src/middleware.rs 
+
 use crate::{
     error::{AppError, Result},
-    services::{jwt::JwtService, token::TokenService},
     state::AppState,
 };
 use axum::{
     extract::{Request, State},
-    http::{header, StatusCode},
+    http::{header},
     middleware::Next,
-    response::{IntoResponse, Response},
+    response::{Response},
 };
 use uuid::Uuid;
 

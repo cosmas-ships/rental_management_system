@@ -1,18 +1,18 @@
 use crate::{
-    error::{AppError, Result},
+    error::{AppError, Result}, 
+    middleware::RequestExt,
     models::{
-        User, LoginRequest, RegisterRequest, AuthResponse, RefreshRequest, LogoutRequest,
-    },
-    state::AppState,
+        AuthResponse, LoginRequest, LogoutRequest, RefreshRequest, RegisterRequest, User
+    }, 
+    services::password::PasswordService, 
+    state::AppState
 };
 use axum::{
-    extract::{State, Extension},
+    extract::{Request, State},
     Json,
 };
-use argon2::{Argon2, PasswordHasher, PasswordVerifier};
-use argon2::password_hash::{SaltString, rand_core::OsRng, PasswordHash};
 use uuid::Uuid;
-use validator::Validate; // ✅ Needed for payload.validate()
+use validator::Validate;
 
 /// Register a new user
 pub async fn register(
@@ -22,13 +22,8 @@ pub async fn register(
     // Validate input
     payload.validate().map_err(|e| AppError::Validation(e.to_string()))?;
 
-    // Generate salt and hash password using Argon2
-    let salt = SaltString::generate(&mut OsRng);
-    let argon2 = Argon2::default();
-    let password_hash = argon2
-        .hash_password(payload.password.as_bytes(), &salt)
-        .map_err(|_| AppError::PasswordHashError)?
-        .to_string();
+    // Hash password using PasswordService
+    let password_hash = PasswordService::hash_password(&payload.password)?;
 
     // Create user in DB
     let user = state
@@ -69,13 +64,11 @@ pub async fn login(
         .get_user_by_email(&payload.email)
         .await?;
 
-    // Verify password
-    let parsed_hash = PasswordHash::new(&user.password_hash)
-        .map_err(|_| AppError::PasswordHashError)?;
-    let argon2 = Argon2::default();
-    argon2
-        .verify_password(payload.password.as_bytes(), &parsed_hash)
-        .map_err(|_| AppError::InvalidCredentials)?;
+    // Verify password using PasswordService
+    let is_valid = PasswordService::verify_password(&payload.password, &user.password_hash)?;
+    if !is_valid {
+        return Err(AppError::InvalidCredentials);
+    }
 
     // Generate tokens
     let access_token = state.jwt_service.generate_access_token(&user)?;
@@ -174,8 +167,11 @@ pub async fn logout(
 /// Get current authenticated user
 pub async fn me(
     State(state): State<AppState>,
-    Extension(user_id): Extension<Uuid>,
+    req: Request,
 ) -> Result<Json<User>> {
+    // Extract user_id from request extensions using RequestExt trait
+    let user_id = req.user_id()?;
+    
     let user = state.user_service.get_user_by_id(user_id).await?;
     Ok(Json(user))
 }

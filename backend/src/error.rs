@@ -1,3 +1,5 @@
+// src/error.rs
+
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
@@ -84,6 +86,29 @@ impl IntoResponse for AppError {
         }));
 
         (status, body).into_response()
+    }
+}
+
+// Catch-all conversion for unexpected errors
+impl From<Box<dyn std::error::Error>> for AppError {
+    fn from(e: Box<dyn std::error::Error>) -> Self {
+        tracing::error!("Unexpected error: {:?}", e);
+        AppError::InternalServerError
+    }
+}
+
+// Additional conversions for common error types
+impl From<std::io::Error> for AppError {
+    fn from(e: std::io::Error) -> Self {
+        tracing::error!("IO error: {:?}", e);
+        AppError::InternalServerError
+    }
+}
+
+impl From<serde_json::Error> for AppError {
+    fn from(e: serde_json::Error) -> Self {
+        tracing::error!("JSON serialization error: {:?}", e);
+        AppError::InternalServerError
     }
 }
 
