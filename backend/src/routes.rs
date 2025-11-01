@@ -10,7 +10,8 @@ pub fn create_router(state: AppState) -> Router {
         .route("/register", post(auth::register))
         .route("/login", post(auth::login))
         .route("/refresh", post(auth::refresh))
-        .route("/logout", post(auth::logout));
+        .route("/logout", post(auth::logout))
+        .route("/sessions", post(auth::get_active_sessions)); // New route
 
     let protected_routes = Router::new()
         .route("/me", get(auth::me))

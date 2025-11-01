@@ -1,8 +1,7 @@
-// src/services/token.rs
 use crate::{
     config::Config,
     error::{AppError, Result},
-    models::RefreshToken,
+    models::{ActiveSession, RefreshToken},
 };
 use chrono::{Duration, Utc};
 use ipnetwork::IpNetwork;
@@ -69,6 +68,19 @@ impl TokenService {
     /// Verify and retrieve refresh token from database
     pub async fn verify_refresh_token(&self, token: &str) -> Result<RefreshToken> {
         let token_hash = Self::hash_token(token);
+
+        // Update last_used timestamp
+        sqlx::query!(
+            r#"
+            UPDATE refresh_tokens
+            SET last_used = $1
+            WHERE token_hash = $2
+            "#,
+            Utc::now(),
+            token_hash
+        )
+        .execute(&self.db)
+        .await?;
 
         let refresh_token = sqlx::query_as!(
             RefreshToken,
@@ -170,9 +182,48 @@ impl TokenService {
         Ok(())
     }
 
-    /// Revoke all refresh tokens for a user
-    pub async fn revoke_all_user_tokens(&self, user_id: Uuid) -> Result<()> {
-        sqlx::query!(
+    /// Get all active sessions for a user
+    pub async fn get_active_sessions(
+        &self,
+        user_id: Uuid,
+        current_token_id: Uuid,
+    ) -> Result<Vec<ActiveSession>> {
+        let sessions = sqlx::query!(
+            r#"
+            SELECT 
+                id,
+                device_info,
+                ip_address as "ip_address: IpNetwork",
+                created_at,
+                last_used
+            FROM refresh_tokens
+            WHERE user_id = $1 
+                AND revoked_at IS NULL 
+                AND expires_at > $2
+            ORDER BY created_at DESC
+            "#,
+            user_id,
+            Utc::now()
+        )
+        .fetch_all(&self.db)
+        .await?
+        .into_iter()
+        .map(|row| ActiveSession {
+            token_id: row.id,
+            device_info: row.device_info,
+            ip_address: row.ip_address.map(|ip| ip.to_string()),
+            created_at: row.created_at,
+            last_used: row.last_used,
+            is_current: row.id == current_token_id,
+        })
+        .collect();
+
+        Ok(sessions)
+    }
+
+    /// Revoke all refresh tokens for a user and return count
+    pub async fn revoke_all_user_tokens(&self, user_id: Uuid) -> Result<u64> {
+        let result = sqlx::query!(
             r#"
             UPDATE refresh_tokens
             SET revoked_at = $1
@@ -184,7 +235,7 @@ impl TokenService {
         .execute(&self.db)
         .await?;
 
-        Ok(())
+        Ok(result.rows_affected())
     }
 
     /// Revoke specific refresh token

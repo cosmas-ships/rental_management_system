@@ -1,5 +1,3 @@
-// src/models.rs
-
 use chrono::{DateTime, Utc};
 use ipnetwork::IpNetwork;
 use serde::{Deserialize, Serialize};
@@ -51,6 +49,7 @@ pub struct LoginRequest {
 #[derive(Debug, Serialize)]
 pub struct AuthResponse {
     pub access_token: String,
+    pub refresh_token: String, // Add this so client can store it
     pub token_type: String,
     pub expires_in: i64,
 }
@@ -77,7 +76,8 @@ impl From<User> for UserResponse {
 // JWT Claims
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AccessTokenClaims {
-    pub sub: String, // user_id
+    pub sub: String,      // user_id
+    pub jti: String,      // token_id (refresh token ID reference)
     pub email: String,
     pub exp: i64,
     pub iat: i64,
@@ -87,22 +87,53 @@ pub struct AccessTokenClaims {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RefreshTokenClaims {
-    pub sub: String, // user_id
-    pub token_id: String, // unique token identifier
+    pub sub: String,      // user_id
+    pub jti: String,      // token_id (unique identifier for this refresh token)
+    pub token_id: String, // Keep for backwards compatibility
     pub exp: i64,
     pub iat: i64,
     pub iss: String,
     pub aud: String,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct RefreshRequest {
     pub refresh_token: String,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct LogoutRequest {
     pub access_token: String,
+    pub refresh_token: String,
+    #[serde(default)]
+    pub logout_all: bool, // Default to false (current device only)
 }
 
+#[derive(Debug, Serialize)]
+pub struct LogoutResponse {
+    pub message: String,
+    pub sessions_revoked: u64,
+}
 
+// Session Management
+#[derive(Debug, Serialize)]
+pub struct ActiveSession {
+    pub token_id: Uuid,
+    pub device_info: Option<String>,
+    pub ip_address: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub last_used: Option<DateTime<Utc>>,
+    pub is_current: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ActiveSessionsResponse {
+    pub sessions: Vec<ActiveSession>,
+    pub current_session_id: Uuid,
+    pub total_sessions: usize,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CheckSessionsRequest {
+    pub access_token: String,
+}

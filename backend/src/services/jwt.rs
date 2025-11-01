@@ -26,12 +26,14 @@ impl JwtService {
         }
     }
 
-    pub fn generate_access_token(&self, user: &User) -> Result<String> {
+    /// Generate access token with token_id reference
+    pub fn generate_access_token(&self, user: &User, token_id: Uuid) -> Result<String> {
         let now = Utc::now();
         let exp = now + Duration::seconds(self.config.access_token_expiry);
 
         let claims = AccessTokenClaims {
             sub: user.id.to_string(),
+            jti: token_id.to_string(), // Add token_id reference
             email: user.email.clone(),
             exp: exp.timestamp(),
             iat: now.timestamp(),
@@ -43,13 +45,15 @@ impl JwtService {
             .map_err(|e| AppError::JwtError(e.to_string()))
     }
 
+    /// Generate refresh token with token_id
     pub fn generate_refresh_token(&self, user_id: Uuid, token_id: Uuid) -> Result<String> {
         let now = Utc::now();
         let exp = now + Duration::seconds(self.config.refresh_token_expiry);
 
         let claims = RefreshTokenClaims {
             sub: user_id.to_string(),
-            token_id: token_id.to_string(),
+            jti: token_id.to_string(),     // Add jti
+            token_id: token_id.to_string(), // Keep for backwards compatibility
             exp: exp.timestamp(),
             iat: now.timestamp(),
             iss: self.config.jwt_issuer.clone(),

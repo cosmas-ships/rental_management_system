@@ -2,7 +2,8 @@ use crate::{
     error::{AppError, Result}, 
     middleware::RequestExt,
     models::{
-        AuthResponse, LoginRequest, LogoutRequest, RefreshRequest, RegisterRequest, User
+        ActiveSessionsResponse, AuthResponse, CheckSessionsRequest, LoginRequest, 
+        LogoutRequest, LogoutResponse, RefreshRequest, RegisterRequest, User
     }, 
     services::password::PasswordService, 
     state::AppState
@@ -32,8 +33,8 @@ pub async fn register(
         .await?;
 
     // Generate tokens
-    let access_token = state.jwt_service.generate_access_token(&user)?;
     let refresh_token_id = Uuid::new_v4();
+    let access_token = state.jwt_service.generate_access_token(&user, refresh_token_id)?;
     let refresh_token = state
         .jwt_service
         .generate_refresh_token(user.id, refresh_token_id)?;
@@ -46,6 +47,7 @@ pub async fn register(
 
     Ok(Json(AuthResponse {
         access_token,
+        refresh_token, // Return refresh token to client
         token_type: "Bearer".into(),
         expires_in: state.config.access_token_expiry,
     }))
@@ -71,8 +73,8 @@ pub async fn login(
     }
 
     // Generate tokens
-    let access_token = state.jwt_service.generate_access_token(&user)?;
     let refresh_token_id = Uuid::new_v4();
+    let access_token = state.jwt_service.generate_access_token(&user, refresh_token_id)?;
     let refresh_token = state
         .jwt_service
         .generate_refresh_token(user.id, refresh_token_id)?;
@@ -85,6 +87,7 @@ pub async fn login(
 
     Ok(Json(AuthResponse {
         access_token,
+        refresh_token, // Return refresh token to client
         token_type: "Bearer".into(),
         expires_in: state.config.access_token_expiry,
     }))
@@ -129,20 +132,49 @@ pub async fn refresh(
         .user_service
         .get_user_by_id(Uuid::parse_str(&claims.sub).unwrap())
         .await?;
-    let new_access_token = state.jwt_service.generate_access_token(&user)?;
+    let new_access_token = state.jwt_service.generate_access_token(&user, new_token_id)?;
 
     Ok(Json(AuthResponse {
         access_token: new_access_token,
+        refresh_token: new_refresh_token, // Return new refresh token
         token_type: "Bearer".into(),
         expires_in: state.config.access_token_expiry,
     }))
 }
 
-/// Logout user (invalidate refresh + blacklist access token)
+/// Get all active sessions for the current user
+pub async fn get_active_sessions(
+    State(state): State<AppState>,
+    Json(payload): Json<CheckSessionsRequest>,
+) -> Result<Json<ActiveSessionsResponse>> {
+    let token = &payload.access_token;
+    
+    // Decode to get user_id and current token_id
+    let claims = state.jwt_service.verify_access_token(token)?;
+    let user_id = Uuid::parse_str(&claims.sub).map_err(|_| AppError::InvalidToken)?;
+    let current_token_id = Uuid::parse_str(&claims.jti)
+        .map_err(|_| AppError::InvalidToken)?;
+    
+    // Get all active sessions
+    let sessions = state
+        .token_service
+        .get_active_sessions(user_id, current_token_id)
+        .await?;
+    
+    let total_sessions = sessions.len();
+    
+    Ok(Json(ActiveSessionsResponse {
+        current_session_id: current_token_id,
+        total_sessions,
+        sessions,
+    }))
+}
+
+/// Logout user with option to logout from all devices
 pub async fn logout(
     State(state): State<AppState>,
     Json(payload): Json<LogoutRequest>,
-) -> Result<Json<()>> {
+) -> Result<Json<LogoutResponse>> {
     let token = &payload.access_token;
 
     // Decode to get user_id
@@ -155,13 +187,29 @@ pub async fn logout(
         .blacklist_access_token(token, state.config.access_token_expiry)
         .await?;
 
-    // Revoke all refresh tokens for this user
-    state
-        .token_service
-        .revoke_all_user_tokens(user_id)
-        .await?;
+    let sessions_revoked = if payload.logout_all {
+        // Revoke all refresh tokens for this user
+        state
+            .token_service
+            .revoke_all_user_tokens(user_id)
+            .await?
+    } else {
+        // Revoke only the specific refresh token
+        state
+            .token_service
+            .revoke_token(&payload.refresh_token)
+            .await?;
+        1
+    };
 
-    Ok(Json(()))
+    Ok(Json(LogoutResponse {
+        message: if payload.logout_all {
+            "Logged out from all devices".to_string()
+        } else {
+            "Logged out from current device".to_string()
+        },
+        sessions_revoked,
+    }))
 }
 
 /// Get current authenticated user
