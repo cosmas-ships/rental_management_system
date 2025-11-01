@@ -1,4 +1,5 @@
 # ===== Rust backend =====
+/target/
 /backend/target/
 /backend/.sqlx/
 /backend/.env
